@@ -1,77 +1,60 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
--------------------------------------------------
-   @File Name:     app.py
-   @Author:        Luyao.zhang
-   @Date:          2023/5/15
-   @Description:
--------------------------------------------------
-"""
-from pathlib import Path
-from PIL import Image
+import cv2
 import streamlit as st
+from ultralytics import YOLO
 
-import config
-from utils import load_model, infer_uploaded_image, infer_uploaded_video, infer_uploaded_webcam
+def app():
+    st.header('Object Detection Web App')
+    st.subheader('Powered by YOLOv8')
+    st.write('Welcome!')
+    model = YOLO('yolov8n.pt')
+    object_names = list(model.names.values())
 
-# setting page layout
-st.set_page_config(
-    page_title="Interactive Interface for YOLOv8",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-    )
+    with st.form("my_form"):
+        uploaded_file = st.file_uploader("Upload video", type=['mp4'])
+        selected_objects = st.multiselect('Choose objects to detect', object_names, default=['person']) 
+        min_confidence = st.slider('Confidence score', 0.0, 1.0)
+        st.form_submit_button(label='Submit')
+            
+    if uploaded_file is not None: 
+        input_path = uploaded_file.name
+        file_binary = uploaded_file.read()
+        with open(input_path, "wb") as temp_file:
+            temp_file.write(file_binary)
+        video_stream = cv2.VideoCapture('video.mp4')
+        width = int(video_stream.get(cv2.CAP_PROP_FRAME_WIDTH)) 
+        height = int(video_stream.get(cv2.CAP_PROP_FRAME_HEIGHT)) 
+        fourcc = cv2.VideoWriter_fourcc(*'h264') 
+        fps = int(video_stream.get(cv2.CAP_PROP_FPS)) 
+        output_path = input_path.split('.')[0] + '_output.mp4' 
+        out_video = cv2.VideoWriter(output_path, int(fourcc), fps, (width, height)) 
 
-# main page heading
-st.title("Interactive Interface for YOLOv8")
+        with st.spinner('Processing video...'): 
+            while True:
+                ret, frame = video_stream.read()
+                if not ret:
+                    break
+                result = model(frame)
+                for detection in result[0].boxes.data:
+                    x0, y0 = (int(detection[0]), int(detection[1]))
+                    x1, y1 = (int(detection[2]), int(detection[3]))
+                    score = round(float(detection[4]), 2)
+                    cls = int(detection[5])
+                    object_name =  model.names[cls]
+                    label = f'{object_name} {score}'
 
-# sidebar
-st.sidebar.header("DL Model Config")
+                    if model.names[cls] in selected_objects and score > min_confidence:
+                        cv2.rectangle(frame, (x0, y0), (x1, y1), (255, 0, 0), 2)
+                        cv2.putText(frame, label, (x0, y0 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                
+                detections = result[0].verbose()
+                cv2.putText(frame, detections, (10, 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  
+                out_video.write(frame) 
+            video_stream.release()
+            out_video.release()
+        st.video(output_path)
 
-# model options
-task_type = st.sidebar.selectbox(
-    "Select Task",
-    ["Detection"]
-)
-
-model_type = None
-if task_type == "Detection":
-    model_type = st.sidebar.selectbox(
-        "Select Model",
-        config.DETECTION_MODEL_LIST
-    )
-else:
-    st.error("Currently only 'Detection' function is implemented")
-
-confidence = float(st.sidebar.slider(
-    "Select Model Confidence", 30, 100, 50)) / 100
-
-model_path = ""
-if model_type:
-    model_path = Path(config.DETECTION_MODEL_DIR, str(model_type))
-else:
-    st.error("Please Select Model in Sidebar")
-
-# load pretrained DL model
-try:
-    model = load_model(model_path)
-except Exception as e:
-    st.error(f"Unable to load model. Please check the specified path: {model_path}")
-
-# image/video options
-st.sidebar.header("Image/Video Config")
-source_selectbox = st.sidebar.selectbox(
-    "Select Source",
-    config.SOURCES_LIST
-)
-
-source_img = None
-if source_selectbox == config.SOURCES_LIST[0]: # Image
-    infer_uploaded_image(confidence, model)
-elif source_selectbox == config.SOURCES_LIST[1]: # Video
-    infer_uploaded_video(confidence, model)
-elif source_selectbox == config.SOURCES_LIST[2]: # Webcam
-    infer_uploaded_webcam(confidence, model)
-else:
-    st.error("Currently only 'Image' and 'Video' source are implemented")
+if __name__ == "__main__":
+    app()
