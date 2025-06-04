@@ -1,4 +1,6 @@
 # Python In-built packages
+brew install python
+python3 -m pip install --upgrade pip
 from pathlib import Path
 import PIL
 import os
