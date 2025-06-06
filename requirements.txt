@@ -3,4 +3,6 @@ ultralytics>=8
 Pillow>=9
 opencv-python-headless>=4
 numpy>=1
+easyocr==1.7.0
+
 
