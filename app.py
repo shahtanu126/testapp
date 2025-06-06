@@ -5,20 +5,6 @@ from PIL import Image
 import os
 import requests
 
-# Function to download files
-def download_file(url, local_filename):
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        with open(local_filename, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192): 
-                f.write(chunk)
-
-# URLs of the files hosted externally
-file_urls = {
-    "yolov3.weights": "https://pjreddie.com/media/files/yolov3.weights",
-    "yolov3.cfg": "https://github.com/pjreddie/darknet/raw/master/cfg/yolov3.cfg",
-    "coco.names": "https://github.com/pjreddie/darknet/raw/master/data/coco.names"
-}
 
 # Download the files if not present
 for filename, url in file_urls.items():
