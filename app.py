@@ -6,12 +6,6 @@ import os
 import requests
 
 
-# Download the files if not present
-for filename, url in file_urls.items():
-    if not os.path.exists(filename):
-        st.info(f"Downloading {filename}...")
-        download_file(url, filename)
-        st.success(f"Downloaded {filename}!")
 
 # Sidebar content
 st.sidebar.image('Ahmad Ali.png', use_column_width=True)
