@@ -1,7 +1,7 @@
 streamlit>=1.8
 ultralytics>=8
 Pillow>=9
-opencv-python-headless>=4
+opencv-python-headless
 numpy>=1
 matplotlib==3.7.2
 
