@@ -1,211 +1,121 @@
-# Python In-built packages
-from pathlib import Path
-import PIL
-
-# External packages
 import streamlit as st
-import easyocr  
-reader = easyocr.Reader(['en'], gpu=False) 
 import cv2
 import numpy as np
+from PIL import Image
+import os
+import requests
 
-# Local Modules
-import settings
-import helper
+# Function to download files
+def download_file(url, local_filename):
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        with open(local_filename, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192): 
+                f.write(chunk)
 
+# URLs of the files hosted externally
+file_urls = {
+    "yolov3.weights": "https://pjreddie.com/media/files/yolov3.weights",
+    "yolov3.cfg": "https://github.com/pjreddie/darknet/raw/master/cfg/yolov3.cfg",
+    "coco.names": "https://github.com/pjreddie/darknet/raw/master/data/coco.names"
+}
 
-# Setting page layout
-st.set_page_config(
-    page_title="Object Detection using YOLOv8",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Download the files if not present
+for filename, url in file_urls.items():
+    if not os.path.exists(filename):
+        st.info(f"Downloading {filename}...")
+        download_file(url, filename)
+        st.success(f"Downloaded {filename}!")
 
-# Main page heading
-st.title("Object Detection using YOLOv8")
+# Sidebar content
+st.sidebar.image('Ahmad Ali.png', use_column_width=True)
+st.sidebar.header("**Ahmad Ali Rafique**")
+st.sidebar.write("AI & Machine Learning Expert")
 
-# Sidebar header
-st.sidebar.header("ML Model Config")
+st.sidebar.header("About Model")
+st.sidebar.info('''This Model is designed for real-time helmet detection using the YOLOv3 (You Only Look Once) model  
+    1️⃣ Click on Upload button   
+    2️⃣ Upload images to detect helmets  
+    3️⃣ See the results ''')
+st.sidebar.header("Contact Information")
+st.sidebar.write("Feel free to reach out through the following:")
+st.sidebar.write("[LinkedIn](https://www.linkedin.com/in/ahmad-ali-rafique/)")
+st.sidebar.write("[GitHub](https://github.com/Ahmad-Ali-Rafique/)")
+st.sidebar.write("[Email](mailto:arsbussiness786@gmail.com)")
+st.sidebar.write("Developed by Ahmad Ali Rafique", unsafe_allow_html=True)
 
-# Model Options
-model_type = st.sidebar.radio(
-    "Select Task", ['Detection', 'Segmentation', 'Potholes Detection', 'License Plate Detection' , 'License Plate Detection with EasyOCR', 'PPE Detection'])
+# Load YOLO model
+net = cv2.dnn.readNet("yolov3.weights", "yolov3.cfg")
+layer_names = net.getLayerNames()
 
-# Sidebar slider
-confidence = float(st.sidebar.slider(
-    "Select Model Confidence", 25, 100, 40)) / 100
-if model_type == 'License Plate Detection with EasyOCR':
-    # Slider for floodfill threshold
-    floodfill_threshold = st.sidebar.slider('Floodfill Threshold', 0, 250, 100, step=1)
+try:
+    output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+except IndexError:
+    output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
 
-    # Slider for thresholding block size
-    threshold_block_size = st.sidebar.slider('Threshold Block Size (odd number, > 1)', 3, 201, 101, step=2)
+with open("coco.names", "r") as f:
+    classes = [line.strip() for line in f.readlines()]
 
-    # Slider for brightness adjustment
-    brightness = st.sidebar.slider('Brightness Adjustment', -100, 100, 0, step=1)
+# Function to detect objects
+def detect_objects(image):
+    img = np.array(image)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    height, width, channels = img.shape
 
-# Selecting Detection Or Segmentation
-@st.cache_resource
-def get_model_path(model_type):
-    if model_type == 'Detection':
-        return Path(settings.DETECTION_MODEL)
-    elif model_type == 'Segmentation':
-        return Path(settings.SEGMENTATION_MODEL)
-    elif model_type == 'Potholes Detection':
-        return Path(settings.CUSTOM_MODEL1)
-    elif model_type == 'License Plate Detection':
-        return Path(settings.CUSTOM_MODEL2)
-    elif model_type == 'License Plate Detection with EasyOCR':
-        return Path(settings.CUSTOM_MODEL2)
-    elif model_type == 'PPE Detection':
-        return Path(settings.CUSTOM_MODEL3)
+    blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    outs = net.forward(output_layers)
 
-# Load Pre-trained ML Model
-@st.cache_resource
-def load_model(model_path):
-    try:
-        model = helper.load_model(model_path)
-        return model
-    except Exception as ex:
-        st.error(f"Unable to load model. Check the specified path: {model_path}")
-        st.error(ex)
+    boxes = []
+    confidences = []
+    class_ids = []
 
-model_path = get_model_path(model_type)
-model = load_model(model_path)
+    for out in outs:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
 
-st.sidebar.header("Image/Video Config")
-source_radio = st.sidebar.radio(
-    "Select Source", settings.SOURCES_LIST)
+            if confidence > 0.5:
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
 
-source_img = None
-# If image is selected
-if source_radio == settings.IMAGE:
-    source_img = st.sidebar.file_uploader(
-        "Choose an image...", type=("jpg", "jpeg", "png", 'bmp', 'webp'))
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
 
-    col1, col2 = st.columns(2)
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
 
-    with col1:
-        try:
-            if source_img is None:
-                default_image_path = str(settings.DEFAULT_IMAGE)
-                default_image = PIL.Image.open(default_image_path)
-                st.image(default_image_path, caption="Default Image",
-                         use_column_width=True)
-            else:
-                uploaded_image = PIL.Image.open(source_img)
-                st.image(source_img, caption="Uploaded Image",
-                         use_column_width=True)
-        except Exception as ex:
-            st.error("Error occurred while opening the image.")
-            st.error(ex)
+    indexes = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+    colors = np.random.uniform(0, 255, size=(len(classes), 3))
 
-    with col2:
-        if source_img is None:
-            default_detected_image_path = str(settings.DEFAULT_DETECT_IMAGE)
-            default_detected_image = PIL.Image.open(
-                default_detected_image_path)
-            st.image(default_detected_image_path, caption='Detected Image',
-                     use_column_width=True)
-        else:
-            if st.sidebar.button('Detect Objects'):
-                res = model.predict(uploaded_image, conf=confidence)
-                boxes = res[0].boxes
-                if len(boxes) == 0:
-                    st.error("No objects detected in the image.")
-                else:
-                    res_plotted = res[0].plot()[:, :, ::-1]
-                    st.image(res_plotted, caption='Detected Image',
-                            use_column_width=True)
-                    try:
-                        with st.expander("Detection Results"):
-                            for box in boxes:
-                                st.write(box.data)
-                    except Exception as ex:
-                        st.write("No image is uploaded yet!")
+    if len(indexes) > 0:
+        for i in indexes.flatten():
+            x, y, w, h = boxes[i]
+            label = str(classes[class_ids[i]])
+            color = colors[class_ids[i]]
+            confidence_label = f"{confidences[i]:.2f}"
 
-        if source_img is not None and model_type == 'License Plate Detection with EasyOCR':
-            if st.sidebar.button('Read License Plate'):
-            # Read and display the uploaded image
-                original_image = PIL.Image.open(source_img)
-                original_image = np.array(original_image)
+            cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(img, confidence_label, (x + w - 50, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-                # Detect license plates
-                license_plates = model.predict(original_image)
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return Image.fromarray(img_rgb)
 
-                if not len(license_plates[0].boxes) == 0:
-                    for i, license_plate in enumerate(license_plates[0].boxes):
-                        x1, y1, x2, y2 = license_plate.xyxy[0]
+# Main application
+st.title("YOLO Helmet Detection")
+st.write("Upload an image to detect helmets.")
 
-                        # Crop license plate from the original image
-                        license_plate_image = original_image[int(y1):int(y2), int(x1):int(x2)]
+uploaded_file = st.file_uploader("Choose an image...", type="jpg")
 
-                        # Process the license plate image with adjustable parameters
-                        processed_license_plate = helper.process_license_plate(license_plate_image, floodfill_threshold, threshold_block_size, brightness)
-
-                    #Perform OCR on the processed license plate image
-                    detections = reader.readtext(processed_license_plate)
-                    if detections:
-                            detected_plate_text = detections[0][1]  # Extract the detected text
-
-                            # Replace the class name with the detected license plate text
-                            license_plate_text = detected_plate_text
-
-                            # Draw a bounding box around the detected car plate
-                            cv2.rectangle(original_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-
-                            # Calculate the text size
-                            text_size, _ = cv2.getTextSize(license_plate_text, cv2.FONT_HERSHEY_SIMPLEX, 1.3, 2)
-
-                            # Calculate the position to center the text
-                            text_x = int(x1 + (x2 - x1 - text_size[0]) / 2)
-                            text_y = int(y1 - 10)
-
-                            # Calculate the background size (adjust as needed)
-                            background_width = text_size[0] + 20  # Add some extra space for padding
-                            background_height = text_size[1] + 10  # Add some extra space for padding
-
-                            # Calculate the position for the background
-                            background_x1 = text_x - 10
-                            background_y1 = text_y - text_size[1] - 5  # Adjusted to be higher
-                            background_x2 = background_x1 + background_width
-                            background_y2 = text_y + 5  # Adjusted to be lower
-
-                            # Draw the enlarged filled background for the text
-                            background_color = (0, 0, 0)
-                            cv2.rectangle(original_image, (background_x1, background_y1), (background_x2, background_y2), background_color, -1)
-
-                            # Draw the centered text on the enlarged filled background
-                            text_color = (255, 255, 255)  # Text color
-                            cv2.putText(original_image, license_plate_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 1.3, text_color, 2)
-               
-                    # Convert the modified image back to PIL format for displaying with Streamlit
-                    image_with_text = PIL.Image.fromarray(original_image)
-
-                    # Display the modified image with updated bounding boxes and license plate text
-                    st.image(image_with_text, caption='Detected License Plate',
-                            use_column_width=True)  
-                    # Display the processed license plate image
-                    st.image(processed_license_plate, caption='Processed License Plate', use_column_width=True)
-                else:
-                  st.error("No license plates detected in the image.")
-          
-elif source_radio == settings.VIDEO:
-    if model_type == 'License Plate Detection with EasyOCR':
-        helper.upload_easyocr(confidence, model)
-    else:
-        helper.infer_uploaded_video(confidence, model)
-
-elif source_radio == settings.WEBCAM:
-    if model_type in ['Detection', 'Segmentation', 'Potholes Detection', 'License Plate Detection', 'PPE Detection']:
-        helper.play_webcam(confidence, model)
-    else:st.error("Webcam is not supported for License Plate Detection with EasyOCR")
-
-elif source_radio == settings.YOUTUBE:
-    if model_type in ['Detection', 'Segmentation', 'Potholes Detection', 'License Plate Detection', 'PPE Detection']:
-        helper.play_youtube_video(confidence, model)
-    else:st.error("Youtube is not supported for License Plate Detection with EasyOCR")
-
-else:
-    st.error("Please select a valid source type!")
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded Image.", use_column_width=True)
+    st.write("")
+    st.write("Detecting...")
+    result_image = detect_objects(image)
+    st.image(result_image, caption="Processed Image.", use_column_width=True)
