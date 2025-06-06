@@ -1,14 +1,19 @@
 # Python In-built packages
 from pathlib import Path
 import PIL
+
 # External packages
-import streamlit as st 
+import streamlit as st
+import easyocr  
 reader = easyocr.Reader(['en'], gpu=False) 
 import cv2
 import numpy as np
+
 # Local Modules
 import settings
 import helper
+
+
 # Setting page layout
 st.set_page_config(
     page_title="Object Detection using YOLOv8",
@@ -16,10 +21,13 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 # Main page heading
 st.title("Object Detection using YOLOv8")
+
 # Sidebar header
 st.sidebar.header("ML Model Config")
+
 # Model Options
 model_type = st.sidebar.radio(
     "Select Task", ['Detection', 'Segmentation', 'Potholes Detection', 'License Plate Detection' , 'License Plate Detection with EasyOCR', 'PPE Detection'])
